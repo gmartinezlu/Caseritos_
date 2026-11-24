@@ -155,6 +155,9 @@
   .extras-table dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin: 0; font-variant-numeric: tabular-nums; }
   .extras-table dt { color: var(--muted); }
   .extras-table dd { margin: 0; font-weight: 700; }
+  .extras-help { margin: 12px 0 8px; color: var(--muted); font-size: 0.9rem; }
+  .addon-group { margin-top: 12px; }
+  .addon-group h4 { margin: 0 0 6px; font-size: 0.95rem; }
 
   /* Total bar */
   .bar {
@@ -217,6 +220,8 @@
   <aside class="extras-table" aria-label="Precios de adicionales">
     <h3>Adicionales</h3>
     <dl id="extras-list"></dl>
+    <p class="extras-help">Selecciona los productos adicionales que quieras. Se cobran aparte de las opciones incluidas y se suman al precio de cada bowl.</p>
+    <div id="addon-options"></div>
   </aside>
 </main>
 
@@ -255,18 +260,22 @@
   ];
 
   var sel = { base: [], protein: [], salad: [], topping: [] };
+  var addons = { base: [], protein: [], topping: [] };
   var qty = 1;
 
   function money(n) { return "$" + n.toLocaleString("es-CO"); }
   function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
 
-  function extraCost(s) {
+  function extraCost(s, selectedAddons) {
     var inc = CONFIG.included, ex = CONFIG.extra;
     return Math.max(0, s.base.length - inc.base) * ex.base +
            Math.max(0, s.protein.length - inc.protein) * ex.protein +
-           Math.max(0, s.topping.length - inc.topping) * ex.topping;
+           Math.max(0, s.topping.length - inc.topping) * ex.topping +
+           selectedAddons.base.length * ex.base +
+           selectedAddons.protein.length * ex.protein +
+           selectedAddons.topping.length * ex.topping;
   }
-  window.__extraCost = extraCost;
+  window.__extraCost = function (s) { return extraCost(s, { base: [], protein: [], topping: [] }); };
 
   // Static pieces
   var rules = document.getElementById("rules");
@@ -288,6 +297,32 @@
       var dd = document.createElement("dd"); dd.textContent = money(r[1]);
       dl.appendChild(dt); dl.appendChild(dd);
     });
+
+  var addonOptions = document.getElementById("addon-options");
+  GROUPS.filter(function (g) { return g.key !== "salad"; }).forEach(function (g) {
+    var group = document.createElement("section"); group.className = "addon-group";
+    var heading = document.createElement("h4");
+    heading.textContent = g.title + " adicional · " + money(CONFIG.extra[g.key]);
+    group.appendChild(heading);
+    var grid = document.createElement("div"); grid.className = "options";
+    g.items.forEach(function (name, i) {
+      var label = document.createElement("label"); label.className = "opt";
+      var input = document.createElement("input");
+      input.type = "checkbox"; input.id = "addon-" + g.key + "-" + i; input.value = name;
+      var card = document.createElement("span"); card.className = "card";
+      var txt = document.createElement("span"); txt.textContent = name;
+      var mark = document.createElement("span"); mark.className = "mark"; mark.setAttribute("aria-hidden", "true");
+      card.appendChild(txt); card.appendChild(mark);
+      label.appendChild(input); label.appendChild(card);
+      input.addEventListener("change", function () {
+        addons[g.key] = Array.prototype.map.call(grid.querySelectorAll("input:checked"), function (o) { return o.value; });
+        update();
+      });
+      grid.appendChild(label);
+    });
+    group.appendChild(grid);
+    addonOptions.appendChild(group);
+  });
 
   // Steps
   var stepsEl = document.getElementById("steps");
@@ -354,6 +389,11 @@
     lines.push("Proteína: " + sel.protein.join(", "));
     if (sel.salad.length) lines.push("Ensalada: " + sel.salad.join(", "));
     if (sel.topping.length) lines.push("Toppings: " + sel.topping.join(", "));
+    var selectedAddons = [];
+    [["base", "Base"], ["protein", "Proteína"], ["topping", "Topping"]].forEach(function (group) {
+      addons[group[0]].forEach(function (item) { selectedAddons.push(group[1] + ": " + item); });
+    });
+    if (selectedAddons.length) lines.push("Adicionales: " + selectedAddons.join(", "));
     var name = document.getElementById("name").value.trim();
     var obs = document.getElementById("notes").value.trim();
     if (obs) lines.push("Observaciones: " + obs);
@@ -366,7 +406,7 @@
   function update() {
     GROUPS.forEach(stepNote);
     document.getElementById("qty").textContent = qty;
-    var extra = extraCost(sel);
+    var extra = extraCost(sel, addons);
     var perBowl = CONFIG.bowlPrice + extra;
     var total = perBowl * qty;
     document.getElementById("total").textContent = money(total);
